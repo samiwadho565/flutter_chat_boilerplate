@@ -1,200 +1,232 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_chat_boilerplate/core/models/MessageModel.dart';
-import 'package:flutter_chat_boilerplate/core/services/audio_player_services.dart';
-import 'package:flutter_chat_boilerplate/core/services/chat_services.dart';
-import 'package:flutter_chat_boilerplate/core/services/voice_note_services.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:path_provider/path_provider.dart';
-import 'dart:io';
+import 'package:flutter_chat_boilerplate/core/controllers/chat_screen_controller.dart';
+import 'package:flutter_chat_boilerplate/core/utils/time_utils.dart';
+import 'package:flutter_chat_boilerplate/core/widgets/custom_circular_image.dart';
+import 'package:flutter_chat_boilerplate/core/widgets/custom_text_field.dart';
+import 'package:flutter_chat_boilerplate/core/widgets/message_option_bottom_sheet.dart';
+import 'package:get/get.dart';
 
-class ChatScreen extends StatefulWidget {
-  const ChatScreen({Key? key}) : super(key: key);
-
-  @override
-  _ChatScreenState createState() => _ChatScreenState();
-}
-
-class _ChatScreenState extends State<ChatScreen> {
-  final TextEditingController _controller = TextEditingController();
-  final List<Map<String, dynamic>> _messages = [];
-  final ChatService _chatService = ChatService();
-  final VoiceNoteService _voiceNoteService = VoiceNoteService();
-  final AudioPlayerService _audioPlayerService = AudioPlayerService();
-
-  bool _isRecording = false;
-  String? _recordedAudioPath;
-
-  @override
-  void dispose() {
-    _audioPlayerService.dispose();
-    super.dispose();
-  }
-
-  // Send text message
-  void _sendMessage(String text) async {
-    if (text.isNotEmpty) {
-      final message = MessageModel(
-        isEdited: true,
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        text: text,
-        senderId: 'qwM1L8NEHRTdHkKsJUFJ7BxMalF3',
-        receiverId: 'tXT7qobFiCVyG24eJSTVoYQdUII2',
-        timestamp: DateTime.now(),
-        isRead: false,
-        messageType: 'text',
-      );
-
-      try {
-        await _chatService.sendMessage(message);
-        setState(() {
-          _messages.add({'type': 'text', 'content': text});
-          _controller.clear();
-        });
-      } catch (e) {
-        print("Error sending message: $e");
-      }
-    }
-  }
-
-  // Start recording audio message
-  void _startRecording() async {
-    setState(() {
-      _isRecording = true;
-    });
-    await _voiceNoteService.startRecording();
-  }
-
-  // Stop recording and upload the file to Firebase
-  void _stopRecording() async {
-    setState(() {
-      _isRecording = false;
-    });
-    final audioPath = await _voiceNoteService.stopRecording();
-    if (audioPath != null) {
-      setState(() {
-        _recordedAudioPath = audioPath;
-      });
-      _sendAudioToFirebase(audioPath);
-    }
-  }
-
-  // Upload audio file to Firebase
-  Future<void> _sendAudioToFirebase(String audioPath) async {
-    try {
-      final file = File(audioPath);
-      final fileName = DateTime.now().millisecondsSinceEpoch.toString();
-      final ref = FirebaseStorage.instance.ref().child('voice_notes/$fileName.m4a');
-
-      await ref.putFile(file);
-      final fileUrl = await ref.getDownloadURL();
-
-      final message = MessageModel(
-        isEdited: true,
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        text: fileUrl,  // Sending the URL of the audio file
-        senderId: 'qwM1L8NEHRTdHkKsJUFJ7BxMalF3',
-        receiverId: 'tXT7qobFiCVyG24eJSTVoYQdUII2',
-        timestamp: DateTime.now(),
-        isRead: false,
-        messageType: 'audio', // Message type is audio
-      );
-
-      await _chatService.sendMessage(message);
-      setState(() {
-        _messages.add({'type': 'audio', 'content': fileUrl});
-      });
-    } catch (e) {
-      print("Error sending audio message: $e");
-    }
-  }
-
-  // Play audio message
-  void _playAudio(String audioUrl) {
-    _audioPlayerService.playAudio(audioUrl);
-  }
+class ChatScreen extends GetView<ChatController> {
+  ChatScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Chat with Audio'),
-        backgroundColor: Colors.blueAccent,
-      ),
+      backgroundColor: Colors.white,
+      appBar: _buildAppBar(context),
       body: Column(
         children: [
-          // Chat message list
-          Expanded(
-            child: ListView.builder(
-              reverse: true,
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final message = _messages[index];
-                if (message['type'] == 'text') {
-                  return ListTile(
-                    title: Text(message['content']),
-                    tileColor: Colors.grey[200],
-                  );
-                } else if (message['type'] == 'audio') {
-                  return ListTile(
-                    title: Text('Audio Message'),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.play_arrow),
-                      onPressed: () {
-                        if (message['content'] != null) {
-                          _playAudio(message['content']);
-                        }
-                      },
-                    ),
-                    tileColor: Colors.blue[50],
-                  );
-                }
-                return const SizedBox.shrink();
-              },
-            ),
-          ),
+          Obx(() => Expanded(child: _buildMessageList(context))),
+          CustomTextField(
+            isForMessageScreen: true,
+            controller: controller.textController,
+            isRecording: controller.isRecording.value,
+            // onSend: controller.sendMessage,
+            onSend: () {
+              if (controller.isEditing.value) {
+                controller.editMessage(
+                  messageId: controller.editingMessageId!,
+                  newText:controller.textController. text.trim(),
+                );
+                controller.isEditing.value = false;
+                controller.editingMessageId = null;
+                controller.textController.clear();
+                controller.selectedMessages.clear();
+              } else {
+                controller.sendMessage();
+              }
+            },
 
-          // Text input field and send button
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                // Text input for typing messages
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    decoration: const InputDecoration(
-                      hintText: 'Type a message...',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-
-                // Send button for text messages
-                IconButton(
-                    icon: const Icon(Icons.send),
-                    onPressed: () {
-                      _sendMessage(_controller.text);
-                    }
-                ),
-              ],
-            ),
-          ),
-
-          // Audio recording controls
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                // Record button for audio messages
-                IconButton(
-                  icon: Icon(_isRecording ? Icons.stop : Icons.mic),
-                  onPressed: _isRecording ? _stopRecording : _startRecording,
-                ),
-              ],
-            ),
+            onChanged: (_) => controller.updateTypingStatus(),
+            onRecord: controller.toggleRecording,
           ),
         ],
       ),
+    );
+  }
+
+  AppBar _buildAppBar(BuildContext context) {
+    return AppBar(
+      backgroundColor: Colors.black,
+      iconTheme: const IconThemeData(color: Colors.white),
+      leadingWidth: 25,
+      title: Row(
+        children: [
+          // CircleAvatar(
+          //   backgroundImage: NetworkImage(controller.user.profileImage ?? ""),
+          // ),
+          CustomCircleAvatar(
+            imageUrl: controller.user.profileImage??"",radius: 17,),
+          SizedBox(
+            width: 10,
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(controller.user.name,
+                  style: const TextStyle(color: Colors.white, fontSize: 18)),
+              Obx(() {
+                if (controller.isTyping.value) {
+                  return const Text(
+                    "is typing...",
+                    style: TextStyle(color: Colors.indigo, fontSize: 11),
+                  );
+                } else if (controller.isOtherUserOnline.value) {
+                  return const Text(
+                    "Online",
+                    style: TextStyle(color: Colors.white, fontSize: 12),
+                  );
+                } else if (controller.lastSeen.value != null) {
+                  final duration =
+                      DateTime.now().difference(controller.lastSeen.value!);
+                  return Text(
+                    "Last seen ${TimeUtils.formatTimeSmart(controller.lastSeen.value!)}",
+                    style: const TextStyle(color: Colors.white54, fontSize: 10),
+                  );
+                } else {
+                  return const Text(
+                    "Offline",
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  );
+                }
+              }),
+            ],
+          ),
+        ],
+      ),
+      actions: [_buildAppBarActions(context)],
+    );
+  }
+
+  Widget _buildAppBarActions(BuildContext context) {
+    return Obx(() {
+      final selectedMessages = controller.selectedMessages;
+      if (selectedMessages.isEmpty) return const SizedBox.shrink();
+
+      return IconButton(
+        icon: const Icon(Icons.more_vert),
+        onPressed: () {
+          MessageOptionsBottomSheet.show(context, controller);
+        },
+      );
+    });
+  }
+
+  Widget _buildMessageList(BuildContext context) {
+    return     controller. isLoading .value?Center(child: Text("Loading...")):
+
+    controller.messageList.isEmpty?
+    Center(child: Text("Start a conversation now! 🗨️")):
+    ListView.builder(
+      reverse: true,
+      itemCount: controller.messageList.length,
+      itemBuilder: (context, index) {
+        final message = controller.messageList[index];
+        final isCurrentUser = message.senderId == controller.currentUserId;
+
+        return GestureDetector(
+          onLongPress: () => controller.toggleSelection(message),
+          onTap: () {
+            if (controller.selectedMessages.isNotEmpty) {
+              controller.toggleSelection(message);
+              controller.isCurrentUser.value = isCurrentUser;
+            }
+          },
+          child: Obx(() {
+            final isSelected = controller.selectedMessages.contains(message);
+            return Container(
+              color: isSelected ? Colors.green.shade100 : Colors.transparent,
+              child: Align(
+                alignment: isCurrentUser
+                    ? Alignment.bottomRight
+                    : Alignment.bottomLeft,
+                child: Column(
+                  crossAxisAlignment: isCurrentUser
+                      ? CrossAxisAlignment.end
+                      : CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.symmetric(
+                          vertical: 4, horizontal: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isCurrentUser
+                            ? Colors.black
+                            :  Color(0xfff3f3f3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.of(context).size.width * 0.7,
+                        ),
+                        child: message.isDeletedForEveryone == true
+                            ? const Text(
+                                "🚫 This message was deleted",
+                                style: TextStyle(
+                                    fontStyle: FontStyle.italic,
+                                    color: Colors.grey),
+                              )
+                            : message.messageType == 'Text'
+                                ? Text(
+                                    message.text,
+                                    style: TextStyle(
+                                      color: isCurrentUser
+                                          ? Colors.white
+                                          : Colors.black,
+                                    ),
+                                  )
+                                : Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(Icons.audiotrack),
+                                      SizedBox(width: 8),
+                                      Text('Audio Message'),
+                                      Icon(Icons.play_arrow),
+                                    ],
+                                  ),
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.only(
+                          right: isCurrentUser ? 8 : 0,
+                          left: !isCurrentUser ? 8 : 0),
+                      child: Row(
+                        mainAxisAlignment: isCurrentUser
+                            ? MainAxisAlignment.end
+                            : MainAxisAlignment.start,
+                        children: [
+                          Text(
+                            TimeUtils.formatTimestamp(message.timestamp),
+                            style: const TextStyle(
+                                fontSize: 11, color: Colors.black38),
+                          ),
+                          if (message.isEdited) ...[
+                            const SizedBox(width: 7),
+                            const Text('Edited',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.black38)),
+                          ],
+                          const SizedBox(width: 7),
+                          if (isCurrentUser)
+                            Text(
+                              message.isRead
+                                  ? "Read"
+                                  : (message.status == "Sent"
+                                      ? "Sent"
+                                      : "Pending"),
+                              style: const TextStyle(
+                                  fontSize: 11, color: Colors.black38),
+                            ),
+                        ],
+                      ),
+                    )
+                  ],
+                ),
+              ),
+            );
+          }),
+        );
+      },
     );
   }
 }

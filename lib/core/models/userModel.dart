@@ -1,44 +1,49 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class UserModel {
-  final String uid;
+  String? uid;
   final String name;
-  final String email;
+  final String? about;
+  final String? email;
   final String? profileImage;
-  final bool isOnline;
-  final DateTime lastSeen;
-  final bool isTyping;
+  final bool? isOnline;
+  final DateTime? lastSeen;
+  final bool? isTyping;
 
   UserModel({
-    required this.uid,
+    this.uid,
     required this.name,
-    required this.email,
+    this.about,
+    this.email,
     this.profileImage,
-    required this.isOnline,
-    required this.lastSeen,
-    required this.isTyping,
+    this.isOnline,
+    this.lastSeen,
+    this.isTyping,
   });
 
   factory UserModel.fromMap(Map<String, dynamic> map) {
     return UserModel(
-      uid: map['uid'] ?? '',
-      name: map['name'] ?? '',
+      uid: map['userId'] ?? '',
+      name: map['userName'] ?? '',
       email: map['email'] ?? '',
+      about: map['about']??'',
       profileImage: map['profileImage'],
       isOnline: map['isOnline'] ?? false,
-      lastSeen: (map['lastSeen'] as Timestamp).toDate(),
+      lastSeen: map['lastSeen'] != null ? (map['lastSeen'] as Timestamp).toDate() : null,
       isTyping: map['isTyping'] ?? false,
     );
   }
 
+
   Map<String, dynamic> toMap() {
     return {
       'uid': uid,
-      'name': name,
+      'userName': name,
       'email': email,
       'profileImage': profileImage,
+      'about':about,
       'isOnline': isOnline,
-      'lastSeen': Timestamp.fromDate(lastSeen),
+      'lastSeen': lastSeen != null ? Timestamp.fromDate(lastSeen!) : null,
       'isTyping': isTyping,
     };
   }

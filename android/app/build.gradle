@@ -1,17 +1,17 @@
 plugins {
     id "com.android.application"
     // START: FlutterFire Configuration
-    id 'com.google.gms.google-services'
+    id 'com.google.gms.google-services'  // Apply this plugin after 'com.android.application'
     // END: FlutterFire Configuration
     id "kotlin-android"
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
-    id "dev.flutter.flutter-gradle-plugin"
+    id "dev.flutter.flutter-gradle-plugin"  // Ensure the Flutter Gradle plugin is applied last
 }
 
 android {
     namespace = "com.example.flutter_chat_boilerplate"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+    apply plugin: 'com.google.gms.google-services'  // Ensure this line is included here as well
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -30,11 +30,8 @@ android {
         versionName = flutter.versionName
     }
 
-
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.debug
         }
     }
